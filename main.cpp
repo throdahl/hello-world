@@ -3,19 +3,20 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <SDl3/SDL_render.h>
+#include <SDL3_image/SDL_image.h>
 #include <math.h>
 #include <vector>
 #include <iostream>
 using namespace std;
 
 #define WINDOW_HEIGHT 512
-#define WINDOW_WIDTH 1024
+#define WINDOW_WIDTH 1080
 #define PI 3.14159265359
-#define DR 0.0174533
+#define DR 0.0174533 /2
 
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
-
+static SDL_Texture * wallTexture = NULL;
 float playerX, playerY, playerDeltaX, playerDeltaY, playerAngle;
 struct Movement{
     bool up = false, down = false, left = false, right = false;
@@ -47,12 +48,12 @@ void drawRays()
     SDL_RenderFillRect(renderer, &floor);
     int r, mx, my, mp, dof;
     float rayX, rayY, rayAngle, xOffset, yOffset;
-    rayAngle = playerAngle - 30 * DR;
+    rayAngle = playerAngle - 60 * DR;
     if(rayAngle < 0)
         rayAngle += 2*PI;
     if(rayAngle > 2*PI)
         rayAngle -= 2*PI;
-    for(r = 0; r < 60; r++)
+    for(r = 0; r < 120; r++)
     {
         //--checking for horizontal lines--
         dof = 0;
@@ -128,19 +129,40 @@ void drawRays()
             } //hit wall
             else{ rayX+=xOffset; rayY+=yOffset; dof+= 1;}
         }
-        if(distanceH < distanceV) {rayX = horizontalX; rayY = horizontalY; distanceT = distanceH;}
-        if(distanceH > distanceV) {rayX = verticalX; rayY = verticalY; distanceT = distanceV;}
+        int textureX = 0;
+        if(distanceH < distanceV) {
+            rayX = horizontalX; 
+            rayY = horizontalY; 
+            distanceT = distanceH;
+            textureX = ((int)rayX % 64);
+        }
+        if(distanceH > distanceV) {
+            rayX = verticalX; 
+            rayY = verticalY; 
+            distanceT = distanceV;
+            textureX = ((int)rayY % 64);
+
+        }
         SDL_SetRenderDrawColorFloat(renderer, 0.0, 0.0, 1.0, 1);
         SDL_RenderLine(renderer, playerX, playerY, rayX, rayY);
+        //---2.5D raycast rendering---
         //fix fisheye
         float correctedDistance = distanceT * cos(rayAngle - playerAngle);
+        
+        //shader based on distance
+        float shade = 1.0f - (correctedDistance / 750.0f);
+        Uint8 color = (Uint8)(shade * 255.0f);
+        SDL_SetTextureColorMod(wallTexture, color, color, color);
+        //wall height calculations for each ray
         float wallHeight = (mapS * 360) / correctedDistance;
         float wallTop = (WINDOW_HEIGHT - wallHeight) / 2;
-        float sliceWidth = (WINDOW_WIDTH / 2.0f) / 60.0f;
+        float sliceWidth = (WINDOW_WIDTH / 2.0f) / 120.0f;
         float wallSlice = (WINDOW_WIDTH / 2.0f) + (sliceWidth * r);
         SDL_FRect wall = {wallSlice , wallTop, sliceWidth, wallHeight};
-        SDL_SetRenderDrawColorFloat(renderer, 1/(correctedDistance/100), 1/(correctedDistance/100), 1/(correctedDistance/100), 1);
-        SDL_RenderFillRect(renderer, &wall);
+
+        
+        SDL_FRect srcRect= {(float)textureX * (640.f/64.0f), 0, 640.0f/120.0f, 640.0f};
+        SDL_RenderTexture(renderer, wallTexture, &srcRect, &wall);
         rayAngle += DR;
         if(rayAngle < 0)
             rayAngle += 2*PI;
@@ -229,6 +251,14 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     return SDL_APP_CONTINUE;
 }
 
+SDL_Texture* loadTexture(SDL_Renderer * renderer, const char* filePath) {
+    SDL_Surface * surface = IMG_Load(filePath);
+    if(!surface) {SDL_Log("IMG_LOAD ERROR"); return nullptr;}
+    SDL_Texture * texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+    return texture;
+}
+
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 {
     if(!SDL_Init(SDL_INIT_VIDEO)) {
@@ -238,6 +268,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
         SDL_Log("Couldn't create window/renderer: %s", SDL_GetError());
         return SDL_APP_FAILURE;
     }
+    wallTexture = loadTexture(renderer, "assets/brickwall.jpg");
     playerX = 300;
     playerY = 300;
     playerDeltaX = cos(playerAngle) * 5;
@@ -285,5 +316,5 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
 
 void SDL_AppQuit(void *appstate, SDL_AppResult result)
 {
-
+    
 }
