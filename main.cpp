@@ -17,6 +17,10 @@ static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
 
 float playerX, playerY, playerDeltaX, playerDeltaY, playerAngle;
+struct Movement{
+    bool up = false, down = false, left = false, right = false;
+};
+Movement movement;
 int mapX = 8, mapY = 8, mapS = mapX * mapY;
 vector<int> map =
 {
@@ -25,7 +29,7 @@ vector<int> map =
     1,0,1,0,0,0,0,1,
     1,0,0,0,0,0,0,1,
     1,0,0,0,0,0,0,1,
-    1,0,0,0,0,1,0,1,
+    1,0,0,1,0,1,0,1,
     1,0,0,0,0,0,0,1,
     1,1,1,1,1,1,1,1,
 };
@@ -135,7 +139,7 @@ void drawRays()
         float sliceWidth = (WINDOW_WIDTH / 2.0f) / 60.0f;
         float wallSlice = (WINDOW_WIDTH / 2.0f) + (sliceWidth * r);
         SDL_FRect wall = {wallSlice , wallTop, sliceWidth, wallHeight};
-        SDL_SetRenderDrawColorFloat(renderer, 1/(correctedDistance/100), 0, 0, 1);
+        SDL_SetRenderDrawColorFloat(renderer, 1/(correctedDistance/100), 1/(correctedDistance/100), 1/(correctedDistance/100), 1);
         SDL_RenderFillRect(renderer, &wall);
         rayAngle += DR;
         if(rayAngle < 0)
@@ -188,13 +192,40 @@ void drawMap()
 }
 SDL_AppResult SDL_AppIterate(void *appstate)
 {
-    
+    Uint32 frameStart = SDL_GetTicks();
+    if(movement.up) {
+        playerX += playerDeltaX; 
+        playerY += playerDeltaY;
+    }
+    if(movement.down) {
+        playerX -= playerDeltaX; 
+        playerY -= playerDeltaY;
+    }
+    if(movement.left) {
+        playerAngle -= 0.1f;
+        if(playerAngle < 0)
+            playerAngle += 2*PI;
+        playerDeltaX = cos(playerAngle) * 5;
+        playerDeltaY = sin(playerAngle) * 5;
+    }
+    if(movement.right) {
+        playerAngle += 0.1f;
+        if(playerAngle > 2*PI)
+            playerAngle -= 2*PI;
+        playerDeltaX = cos(playerAngle) * 5;
+        playerDeltaY = sin(playerAngle) * 5;
+    }
     SDL_SetRenderDrawColorFloat(renderer, 0.3, 0.3, 0.3, 0);
     SDL_RenderClear(renderer);
     drawMap();
     drawPlayer();
     drawRays();
     SDL_RenderPresent(renderer);
+
+    //cap frames per second
+    Uint32 frameTime = SDL_GetTicks() - frameStart;
+    if(frameTime < 16)
+        SDL_Delay(32 - frameTime);
     return SDL_APP_CONTINUE;
 }
 
@@ -211,7 +242,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     playerY = 300;
     playerDeltaX = cos(playerAngle) * 5;
     playerDeltaY = sin(playerAngle) * 5;
-
+    
     return SDL_APP_CONTINUE;
 }
 
@@ -221,33 +252,33 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
     if(event->type == SDL_EVENT_QUIT){
         return SDL_APP_SUCCESS;
     }
-    if(event->key.scancode == SDL_SCANCODE_W) {
-        playerX += playerDeltaX; 
-        playerY += playerDeltaY;
-     }
-    if(event->key.scancode == SDL_SCANCODE_A) {
-        playerAngle -= 0.1f;
-        if(playerAngle < 0){
-            playerAngle += 2*PI;
+    if(event->type == SDL_EVENT_KEY_DOWN) {
+        if(event->key.scancode == SDL_SCANCODE_W) {
+            
+            movement.up = true;
+         }
+        if(event->key.scancode == SDL_SCANCODE_A) {
+
+            movement.left = true;
         }
-        playerDeltaX = cos(playerAngle) * 5;
-        playerDeltaY = sin(playerAngle) * 5;
+
+        if(event->key.scancode == SDL_SCANCODE_S) {
+
+            movement.down = true;
+         }
+     
+        if(event->key.scancode == SDL_SCANCODE_D) {
+
+            movement.right = true;
+         }
+
     }
-    
-    if(event->key.scancode == SDL_SCANCODE_S) {
-        playerX -= playerDeltaX; 
-        playerY -= playerDeltaY;
-     }
-    
-    if(event->key.scancode == SDL_SCANCODE_D) {
-        playerAngle += 0.1f;
-        if(playerAngle > 2*PI){
-            playerAngle -= 2*PI;
-        }
-        playerDeltaX = cos(playerAngle) * 5;
-        playerDeltaY = sin(playerAngle) * 5;
-     }
-        
+    if(event->type == SDL_EVENT_KEY_UP) {
+        if(event->key.scancode == SDL_SCANCODE_W) movement.up = false;
+        if(event->key.scancode == SDL_SCANCODE_A) movement.left = false;
+        if(event->key.scancode == SDL_SCANCODE_S) movement.down = false;
+        if(event->key.scancode == SDL_SCANCODE_D) movement.right = false;
+    }
     
     return SDL_APP_CONTINUE;
 }
