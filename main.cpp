@@ -4,8 +4,8 @@
 #include <SDL3/SDL_main.h>
 #include <SDl3/SDL_render.h>
 #include <math.h>
-#include "include/map.h"
-#include "include/player.h"
+#include <vector>
+#include <iostream>
 using namespace std;
 
 #define WINDOW_HEIGHT 512
@@ -35,6 +35,12 @@ float pythag(float x1, float y1, float x2, float y2, float angle){
 }
 void drawRays()
 {
+    SDL_FRect ceiling = {WINDOW_WIDTH/2, 0, WINDOW_WIDTH/2, WINDOW_HEIGHT/2};
+    SDL_SetRenderDrawColorFloat(renderer, 0.3, 0.6, 1, 1);
+    SDL_RenderFillRect(renderer, &ceiling);
+    SDL_FRect floor = {WINDOW_WIDTH/2, WINDOW_HEIGHT/2, WINDOW_WIDTH/2, WINDOW_HEIGHT/2};
+    SDL_SetRenderDrawColorFloat(renderer, 0.3, 1, 0.6, 1);
+    SDL_RenderFillRect(renderer, &floor);
     int r, mx, my, mp, dof;
     float rayX, rayY, rayAngle, xOffset, yOffset;
     rayAngle = playerAngle - 30 * DR;
@@ -122,11 +128,21 @@ void drawRays()
         if(distanceH > distanceV) {rayX = verticalX; rayY = verticalY; distanceT = distanceV;}
         SDL_SetRenderDrawColorFloat(renderer, 0.0, 0.0, 1.0, 1);
         SDL_RenderLine(renderer, playerX, playerY, rayX, rayY);
+        //fix fisheye
+        float correctedDistance = distanceT * cos(rayAngle - playerAngle);
+        float wallHeight = (mapS * 360) / correctedDistance;
+        float wallTop = (WINDOW_HEIGHT - wallHeight) / 2;
+        float sliceWidth = (WINDOW_WIDTH / 2.0f) / 60.0f;
+        float wallSlice = (WINDOW_WIDTH / 2.0f) + (sliceWidth * r);
+        SDL_FRect wall = {wallSlice , wallTop, sliceWidth, wallHeight};
+        SDL_SetRenderDrawColorFloat(renderer, 1/(correctedDistance/100), 0, 0, 1);
+        SDL_RenderFillRect(renderer, &wall);
         rayAngle += DR;
         if(rayAngle < 0)
             rayAngle += 2*PI;
         if(rayAngle > 2*PI)
             rayAngle -= 2*PI;
+
     }
 }
 
