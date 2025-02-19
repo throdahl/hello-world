@@ -160,9 +160,10 @@ void drawRays()
         float wallSlice = (WINDOW_WIDTH / 2.0f) + (sliceWidth * r);
         SDL_FRect wall = {wallSlice , wallTop, sliceWidth, wallHeight};
 
-        
+        //render texture onto slice
         SDL_FRect srcRect= {(float)textureX * (640.f/64.0f), 0, 640.0f/120.0f, 640.0f};
         SDL_RenderTexture(renderer, wallTexture, &srcRect, &wall);
+
         rayAngle += DR;
         if(rayAngle < 0)
             rayAngle += 2*PI;
@@ -216,26 +217,42 @@ SDL_AppResult SDL_AppIterate(void *appstate)
 {
     Uint32 frameStart = SDL_GetTicks();
     if(movement.up) {
-        playerX += playerDeltaX; 
-        playerY += playerDeltaY;
+        float newX = playerX + playerDeltaX;
+        float newY = playerY + playerDeltaY;
+
+        int gridX = (int)newX / mapS;
+        int gridY = (int) playerY / mapS;
+        if(map[gridY * mapX + gridX] == 0) playerX = newX;
+
+        gridX = (int) playerX / mapS;
+        gridY = (int) newY / mapS;
+        if(map[gridY * mapX + gridX] == 0) playerY = newY;
     }
     if(movement.down) {
-        playerX -= playerDeltaX; 
-        playerY -= playerDeltaY;
+        float newX = playerX - playerDeltaX;
+        float newY = playerY - playerDeltaY;
+
+        int gridX = (int)newX / mapS;
+        int gridY = (int) playerY / mapS;
+        if(map[gridY * mapX + gridX] == 0) playerX = newX;
+
+        gridX = (int) playerX / mapS;
+        gridY = (int) newY / mapS;
+        if(map[gridY * mapX + gridX] == 0) playerY = newY;
     }
     if(movement.left) {
         playerAngle -= 0.1f;
         if(playerAngle < 0)
             playerAngle += 2*PI;
-        playerDeltaX = cos(playerAngle) * 5;
-        playerDeltaY = sin(playerAngle) * 5;
+        playerDeltaX = cos(playerAngle) * 4;
+        playerDeltaY = sin(playerAngle) * 4;
     }
     if(movement.right) {
         playerAngle += 0.1f;
         if(playerAngle > 2*PI)
             playerAngle -= 2*PI;
-        playerDeltaX = cos(playerAngle) * 5;
-        playerDeltaY = sin(playerAngle) * 5;
+        playerDeltaX = cos(playerAngle) * 4;
+        playerDeltaY = sin(playerAngle) * 4;
     }
     SDL_SetRenderDrawColorFloat(renderer, 0.3, 0.3, 0.3, 0);
     SDL_RenderClear(renderer);
