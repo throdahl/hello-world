@@ -4,45 +4,42 @@
 #include <SDL3/SDL_main.h>
 #include <SDl3/SDL_render.h>
 #include <SDL3_image/SDL_image.h>
-#include <math.h>   
-#include <vector>
-#include <iostream>
+#include <SDL3_ttf/SDL_ttf.h>
+#include <string_view>
+#include <filesystem>
+#include <thread>
+#include <future>
+#include "include/map.h"
+#include "include/player.h"
 
-
-using namespace std;
-
-#define WINDOW_HEIGHT 720
-#define WINDOW_WIDTH 1280
+#define WINDOW_HEIGHT 600
+#define WINDOW_WIDTH 800
 #define PI 3.14159265359
 #define DR 0.0174533 /2
-#define TILE_SIZE 64
 #define MAX_DEPTH 20
 
-static SDL_Window *window = NULL;
-static SDL_Renderer *renderer = NULL;
-static SDL_Texture * wallTexture = NULL;
-
-//--PLAYER--
-float playerX, playerY, playerDeltaX, playerDeltaY, playerAngle;
-struct Movement{
-    bool up = false, down = false, left = false, right = false;
+struct AppContext {
+    SDL_Window* window;
+    SDL_Renderer* renderer;
+    vector<SDL_Texture*> textures;
+    SDL_AppResult app_quit = SDL_APP_CONTINUE;
+    bool fullScreen = false;
 };
-Movement movement;
 
 //--MAP--
-vector<int> map =
+vector<int> &&mapV =
 {
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-    1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-    1,0,1,1,0,0,1,1,0,1,1,0,1,1,0,0,1,1,0,1,
-    1,0,1,1,0,0,1,1,0,1,1,0,1,1,0,0,1,1,0,1,
+    1,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,1,
+    1,0,0,0,0,0,0,0,0,1,1,0,1,1,0,0,1,1,0,1,
+    1,0,0,0,0,0,0,0,0,1,1,0,1,1,0,0,1,1,0,1,
     1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,
     1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,
     1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,
-    1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,
-    1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1,1,0,0,1,
-    1,0,0,0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,0,1,
-    1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,
+    1,0,0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,
+    1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,1,0,0,1,
+    1,0,0,0,0,0,1,0,0,0,2,0,0,0,0,0,0,0,0,1,
+    1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,
     1,0,0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,
     1,0,0,0,0,0,0,0,0,1,1,0,0,1,0,0,0,0,0,1,
     1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,
@@ -50,75 +47,83 @@ vector<int> map =
     1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,
     1,0,0,0,0,0,1,0,0,1,1,0,0,0,0,0,1,0,0,1,
     1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,
-    1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+    1,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,1,
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
 };
-int mapX = sqrt(map.size()), mapY = sqrt(map.size()), mapS = mapX * mapY;
 
-//--DISTANCE--
-float pythag(float x1, float y1, float x2, float y2, float angle){
-    return ( sqrt((x2-x1) * (x2-x1) + (y2-y1) * (y2-y1)));
-}
+//--PLAYER AND MAP--
+Player player;
+Movement movement;
+Map map1(mapV);
 
-bool checkColision(float x, float y)
+
+void drawRays(AppContext * app)
 {
-    int gridX = (int)x / TILE_SIZE;
-    int gridY = (int)y / TILE_SIZE;
+    
+    //Draw celing gradient
+    for (int y = 0; y < WINDOW_HEIGHT / 2; y++) {
+        float t = (float)y / (WINDOW_HEIGHT / 2);
+        float r = 0;
+        float g = 0.7f;
+        float b = 1.0f;
+        SDL_SetRenderDrawColorFloat(app->renderer, r, g, b, 1.0f);
+        SDL_RenderLine(app->renderer, 0, y, WINDOW_WIDTH, y);
+    }
+    
+    // Draw floor gradient
+    for (int y = WINDOW_HEIGHT / 2; y < WINDOW_HEIGHT; y++) {
+        float t = (float)(y - WINDOW_HEIGHT / 2) / (WINDOW_HEIGHT / 2);
+        float r = 0.2f + (0.5f - 0.2f) * t;
+        float g = 0.1f + (0.3f - 0.1f) * t;
+        float b = 0.1f + (0.2f - 0.1f) * t;
+        SDL_SetRenderDrawColorFloat(app->renderer, r, g, b, 1.0f);
+        SDL_RenderLine(app->renderer, 0, y, WINDOW_WIDTH, y);
+    }
 
-    int index = gridY * mapX + gridX;
-    return(map[index] >= 1);
-}
-
-void drawRays()
-{
-    SDL_FRect ceiling = {0, 0, WINDOW_WIDTH, WINDOW_HEIGHT/2};
-    SDL_SetRenderDrawColorFloat(renderer, 0.3, 0.6, 1, 1);
-    SDL_RenderFillRect(renderer, &ceiling);
-    SDL_FRect floor = {0, WINDOW_HEIGHT/2, WINDOW_WIDTH, WINDOW_HEIGHT/2};
-    SDL_SetRenderDrawColorFloat(renderer, 0.3, 1, 0.6, 1);
-    SDL_RenderFillRect(renderer, &floor);
     int r, mx, my, mp, dof;
     float rayX, rayY, rayAngle, xOffset, yOffset;
-    rayAngle = playerAngle - 60 * DR;
+    //FOV of 60 degrees
+    rayAngle = player.angle - 60 * DR;
     if(rayAngle < 0)
         rayAngle += 2*PI;
     if(rayAngle > 2*PI)
         rayAngle -= 2*PI;
+    //loop for each ray
     for(r = 0; r < 120; r++)
     {
         //--checking for horizontal lines--
         dof = 0;
         float aTan=-1/tan(rayAngle);
-        float distanceH = INTMAX_MAX, horizontalX=playerX, horizontalY = playerY;
+        float distanceH = INTMAX_MAX, horizontalX=player.x, horizontalY = player.y;
         float distanceT;
         //looking up
         if(rayAngle > PI) {
-            rayY =(((int)playerY>>6)<<6) - 0.0001;
-            rayX = (playerY-rayY)*aTan+playerX;
-            yOffset= -64;
+            rayY =(((int)player.y / TILE_SIZE) * TILE_SIZE) - 0.0001;
+            rayX = (player.y-rayY)*aTan+player.x;
+            yOffset= -TILE_SIZE;
             xOffset= -yOffset*aTan;
         }
         //looking down
         if(rayAngle < PI) {
-            rayY =(((int)playerY>>6)<<6) +64;
-            rayX = (playerY-rayY)*aTan+playerX;
-            yOffset= 64;
+            rayY =(((int)player.y / TILE_SIZE) * TILE_SIZE) +TILE_SIZE;
+            rayX = (player.y-rayY)*aTan+player.x;
+            yOffset= TILE_SIZE;
             xOffset= -yOffset*aTan;
         }
         //looking straight left or right
         if(rayAngle == 0 || rayAngle == PI){
-            rayX = playerX;
-            rayY = playerY;
+            rayX = player.x;
+            rayY = player.y;
             dof = MAX_DEPTH;
         }
         while(dof < MAX_DEPTH)
         {
-            mx=(int) (rayX) >> 6;
-            my=(int) (rayY) >> 6;
-            mp=my*mapX+mx;
-            if(mp > 0 && mp<mapX*mapY && map[mp] == 1) { 
+            mx=(int) (rayX) / TILE_SIZE;
+            my=(int) (rayY) / TILE_SIZE;
+            mp=my*map1.mapX+mx;
+            if(mp > 0 && mp<map1.mapX*map1.mapY && map1.getMap()[mp] > 0) { 
                 horizontalX = rayX; horizontalY = rayY;
-                distanceH = pythag(playerX, playerY, rayX, rayY, playerAngle); 
+                distanceH = pythag(player.x, player.y, rayX, rayY, player.angle); 
                 dof = MAX_DEPTH;
             } //hit wall
             else{ rayX+=xOffset; rayY+=yOffset; dof+= 1;}
@@ -127,36 +132,36 @@ void drawRays()
         //--checking for vertical lines--
         dof = 0;
         float nTan= -tan(rayAngle);
-        float distanceV = INTMAX_MAX, verticalX=playerX, verticalY = playerY;
+        float distanceV = INTMAX_MAX, verticalX=player.x, verticalY = player.y;
         
         //looking left
         if(rayAngle > PI/2 && rayAngle < 3*PI/2) {
-            rayX =(((int)playerX>>6)<<6) - 0.0001;
-            rayY = (playerX-rayX)*nTan+playerY;
-            xOffset= -64;
+            rayX =(((int)player.x / TILE_SIZE) * TILE_SIZE) - 0.0001;
+            rayY = (player.x-rayX)*nTan+player.y;
+            xOffset= -TILE_SIZE;
             yOffset= -xOffset*nTan;
         }
         //looking right
         if(rayAngle < PI/2 ||  rayAngle >3*PI/2) {
-            rayX =(((int)playerX>>6)<<6) +64;
-            rayY = (playerX-rayX)*nTan+playerY;
-            xOffset= 64;
+            rayX =(((int)player.x / TILE_SIZE) * TILE_SIZE) +TILE_SIZE;
+            rayY = (player.x-rayX)*nTan+player.y;
+            xOffset= TILE_SIZE;
             yOffset= -xOffset*nTan;
         }
         //looking straight up or down
         if(rayAngle == 0 || rayAngle == PI){
-            rayX = playerX;
-            rayY = playerY;
+            rayX = player.x;
+            rayY = player.y;
             dof = MAX_DEPTH;
         }
         while(dof < MAX_DEPTH)
         {
-            mx=(int) (rayX) >> 6;
-            my=(int) (rayY) >> 6;
-            mp=my*mapX+mx;
-            if(mp > 0 && mp<mapX*mapY && map[mp] == 1) {
+            mx=(int) (rayX) / TILE_SIZE;
+            my=(int) (rayY) / TILE_SIZE;
+            mp=my*map1.mapX+mx;
+            if(mp > 0 && mp<map1.mapX*map1.mapY && map1.getMap()[mp] > 0) {
                 verticalX = rayX; verticalY = rayY;
-                distanceV = pythag(playerX, playerY, rayX, rayY, playerAngle);
+                distanceV = pythag(player.x, player.y, rayX, rayY, player.angle);
                 dof = MAX_DEPTH;
             } //hit wall
             else{ rayX+=xOffset; rayY+=yOffset; dof+= 1;}
@@ -166,41 +171,52 @@ void drawRays()
             rayX = horizontalX; 
             rayY = horizontalY; 
             distanceT = distanceH;
-            textureX = ((int)rayX % 64);
+            textureX = ((int)rayX % TILE_SIZE);
         }
         if(distanceH > distanceV) {
             rayX = verticalX; 
             rayY = verticalY; 
             distanceT = distanceV;
-            textureX = ((int)rayY % 64);
+            textureX = ((int)rayY % TILE_SIZE);
 
         }
-        /*
-        SDL_SetRenderDrawColorFloat(renderer, 0.0, 0.0, 1.0, 1);
-        SDL_RenderLine(renderer, playerX, playerY, rayX, rayY);
-        */
+        //get texture of ray
+        int textureIndex = map1.getMap()[map1.findMapIndex(rayX, rayY)] - 1;
+        
+        //--Draw ray lines for testing--
+       /*
+       SDL_SetRenderDrawColorFloat(app->renderer, 0.0, 0.0, 1.0, 1);
+       SDL_RenderLine(app->renderer, player.x, player.y, rayX, rayY);
+       */
+      
+        
         //---2.5D raycast rendering---
         //fix fisheye
-        float correctedDistance = distanceT * cos(rayAngle - playerAngle);
+        float correctedDistance = distanceT * cos(rayAngle - player.angle);
         
         //shader based on distance
         float shadeDist = correctedDistance;
         if(shadeDist > 1250.0f) shadeDist = 1250.0f;
         float shade = 1.0f - (shadeDist / 1250.0f);
         Uint8 color = (Uint8)(shade * 255.0f);
-        SDL_SetTextureColorMod(wallTexture, color, color, color);
+        SDL_SetTextureColorMod(app->textures[textureIndex], color, color, color);
+
         //wall height calculations for each ray
         float fovRad = 60.0f * (PI / 180.0f);
         float projPlaneDist = (WINDOW_WIDTH / 2.0f) / tan(fovRad / 2.0f);
         float wallHeight = (TILE_SIZE / correctedDistance) * projPlaneDist;
         float wallTop = (WINDOW_HEIGHT - wallHeight) / 2;
+        
         float sliceWidth = (WINDOW_WIDTH) / 120.0f;
         float wallSlice =  (sliceWidth * r);
         SDL_FRect wall = {wallSlice , wallTop, sliceWidth, wallHeight};
 
         //render texture onto slice
-        SDL_FRect srcRect= {(float)textureX * (640.f/64.0f), 0, 640.0f/120.0f, 640.0f};
-        SDL_RenderTexture(renderer, wallTexture, &srcRect, &wall);
+        float textureSize = 0.0f;
+        if(textureIndex == 0) {textureSize = 640.0f;}
+        else if(textureIndex == 1) {textureSize = 143.0f;}
+        SDL_FRect srcRect= {(float)textureX * ((float)textureSize/(float) TILE_SIZE), 0, 0, (float)textureSize};
+        SDL_RenderTexture(app->renderer, app->textures[textureIndex], &srcRect, &wall);
 
         rayAngle += DR;
         if(rayAngle < 0)
@@ -211,12 +227,14 @@ void drawRays()
     }
 }
 
-void drawPlayer()
+//--Draw player and map for testing
+void drawPlayer(SDL_Renderer * renderer)
 {
-    //player is a 8x8 square
+    float miniMapX = player.x, miniMapY = player.y;
+    //player is a square
     SDL_FRect playerRect = {
-        playerX,
-        playerY,
+        miniMapX,
+        miniMapY,
         8,
         8
     };
@@ -225,22 +243,24 @@ void drawPlayer()
 
     //Where the player is looking 
     SDL_SetRenderDrawColorFloat(renderer, 1, 1, 0, 1);
-    SDL_RenderLine(renderer, playerX, playerY, playerX + playerDeltaX*5, playerY + playerDeltaY*5);
+    SDL_RenderLine(renderer, player.x, player.y, player.x + player.dx*5, player.y + player.dy*5);
 }
-
-void drawMap()
+void drawMap(SDL_Renderer * renderer)
 {
-    for(int y = 0; y < mapY; y++)
+    float miniMapScale = WINDOW_WIDTH / 100;
+    for(int y = 0; y < map1.mapY; y++)
     {
-        for(int x = 0; x < mapX; x++)
+        for(int x = 0; x < map1.mapX; x++)
         {
             SDL_FRect tile = {
-                x * 64.0f,
-                y * 64.0f,
-                64,
-                64
+                x * miniMapScale,
+                y * miniMapScale,
+                miniMapScale,
+                miniMapScale
             };
-            if(map[y*mapX+x] == 1)
+            if(map1.findMapIndex(player.x, player.y) == map1.findMapIndex(x * TILE_SIZE, y * TILE_SIZE))
+                SDL_SetRenderDrawColorFloat(renderer, 1.0f,1.0f,0.0f,1.0f);
+            else if(map1.getMap()[y*map1.mapX+x] > 0)
                 SDL_SetRenderDrawColorFloat(renderer, 1.0f,1.0f,1.0f,1.0f);
             else
                 SDL_SetRenderDrawColorFloat(renderer, 0.0f,0.0f,0.0f,0.0f);
@@ -249,57 +269,93 @@ void drawMap()
             SDL_SetRenderDrawColorFloat(renderer, 0.5f, 0.5f, 0.5f, 1.0f);
             SDL_FRect tileOutline = tile;
             SDL_RenderRect(renderer, &tileOutline);
+
         }
+    }
+}
+void drawBullets(SDL_Renderer* renderer, const std::vector<Bullet>& bullets) {
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // Red color for bullets
+    for (const auto& bullet : bullets) {
+        
     }
 }
 SDL_AppResult SDL_AppIterate(void *appstate)
 {
+    auto* app = (AppContext*)appstate;
     Uint32 frameStart = SDL_GetTicks();
     if(movement.up) {
-        float newX = playerX + playerDeltaX * 2;
-        float newY = playerY + playerDeltaY * 2;
-        if(!checkColision(newX, playerY)) playerX = newX;
-        if(!checkColision(playerX, newY)) playerY = newY;
+        float newX = player.x + player.dx * 2;
+        float newY = player.y + player.dy * 2;
+        if(!map1.checkColision(newX, player.y)) player.x = newX;
+        if(!map1.checkColision(player.x, newY)) player.y = newY;
     }
     if(movement.down) {
-        float newX = playerX - playerDeltaX * 1.5;
-        float newY = playerY - playerDeltaY * 1.5;
-
-        if(!checkColision(newX, playerY)) playerX = newX;
-        if(!checkColision(playerX, newY)) playerY = newY;
+        float newX = player.x - player.dx * 1.5;
+        float newY = player.y - player.dy * 1.5;
+        if(!map1.checkColision(newX, player.y)) player.x = newX;
+        if(!map1.checkColision(player.x, newY)) player.y = newY;
     }
     if(movement.left) {
-        playerAngle -= 0.1f;
-        if(playerAngle < 0)
-            playerAngle += 2*PI;
-        playerDeltaX = cos(playerAngle) * 4;
-        playerDeltaY = sin(playerAngle) * 4;
+        player.angle -= 0.1f;
+        if(player.angle < 0) player.angle += 2*PI;
+        player.dx = cos(player.angle) * 4;
+        player.dy = sin(player.angle) * 4;
     }
     if(movement.right) {
-        playerAngle += 0.1f;
-        if(playerAngle > 2*PI)
-            playerAngle -= 2*PI;
-        playerDeltaX = cos(playerAngle) * 4;
-        playerDeltaY = sin(playerAngle) * 4;
+        player.angle += 0.1f;
+        if(player.angle > 2*PI) player.angle -= 2*PI;
+        player.dx = cos(player.angle) * 4;
+        player.dy = sin(player.angle) * 4;
     }
-    SDL_SetRenderDrawColorFloat(renderer, 0.3, 0.3, 0.3, 0);
-    SDL_RenderClear(renderer);
-    /*drawMap();
-    drawPlayer();*/
-    drawRays();
-    SDL_RenderPresent(renderer);
+    if(movement.open) {
+        int gridX = (int)player.x / TILE_SIZE;
+        int gridY = (int)player.y / TILE_SIZE;
+        int position = gridX + gridY * map1.mapX;
+        int angle = player.angle / (2 * PI) * 360;
+        //up
+        if(angle >= 180 && angle <= 360) map1.changeDoor(position - map1.mapX);
+        //down
+        if(angle >= 0 && angle <= 180) map1.changeDoor(position + map1.mapX);
+        //left
+        if(angle >=90 && angle <= 270) map1.changeDoor(position - 1);
+        //right
+        if(angle >= 270 || angle <= 90) map1.changeDoor(position + 1);
+        
+    }
+    if(movement.shoot) {
+        player.bullets.push_back({player.x, player.y, player.dx, player.dy});
+    }
+    for(auto &bullet : player.bullets) {
+        bullet.x += bullet.dx * 20;
+        bullet.y += bullet.dy * 20;
+        bullet.distance = pythag(player.x, player.y, bullet.x, bullet.y, player.angle);
+        if(map1.getMap()[map1.findMapIndex(bullet.x, bullet.y)] > 0) {
+            player.bullets.erase(player.bullets.begin());
+            cout << "Bullet hit wall at " << map1.findMapIndex(bullet.x, bullet.y) << endl;
+        }
+    }
+    SDL_SetRenderDrawColorFloat(app->renderer, 0.3, 0.3, 0.3, 0);
+    SDL_RenderClear(app->renderer);
+    SDL_Rect clipRect = { 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT };
+    SDL_SetRenderClipRect(app->renderer, &clipRect);
+    drawRays(app);
+    drawMap(app->renderer);
+    /*
+    drawPlayer(app->renderer);
+    */
+    drawBullets(app->renderer, player.bullets);
+    SDL_RenderPresent(app->renderer);
 
     //cap frames per second
-    #ifdef __EMSCRIPTEN__
-        // Browser handles frame timing
-        return SDL_APP_CONTINUE;
-    #else
+    
     // Original frame timing code for native builds
-        Uint32 frameTime = SDL_GetTicks() - frameStart;
-        if(frameTime < 16)
-            SDL_Delay(32 - frameTime);
-        return SDL_APP_CONTINUE;
-    #endif
+    Uint32 frameTime = SDL_GetTicks() - frameStart;
+    if(frameTime < 16)
+        SDL_Delay(32 - frameTime);
+    if(app->app_quit != SDL_APP_CONTINUE)
+        return app->app_quit;
+    
+    return SDL_APP_CONTINUE;
 }
 
 SDL_Texture* loadTexture(SDL_Renderer * renderer, const char* filePath) {
@@ -310,56 +366,81 @@ SDL_Texture* loadTexture(SDL_Renderer * renderer, const char* filePath) {
     return texture;
 }
 
+SDL_AppResult SDL_Fail(){
+    SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "Error %s", SDL_GetError());
+    return SDL_APP_FAILURE;
+}
+
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 {
-    if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) < 0) {
-        return SDL_APP_FAILURE;
+    if(not SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_AUDIO)) {
+        return SDL_Fail();
     }
-    if (!SDL_CreateWindowAndRenderer("2.5D", WINDOW_WIDTH, WINDOW_HEIGHT, 0, &window, &renderer)) {
-        SDL_Log("Couldn't create window/renderer: %s", SDL_GetError());
-        return SDL_APP_FAILURE;
+    SDL_Window * window = SDL_CreateWindow("2.5D", WINDOW_WIDTH, WINDOW_HEIGHT, 0);
+    if(not window) {
+        return SDL_Fail();
     }
-    wallTexture = loadTexture(renderer, "assets/brickwall.jpg");
-    playerX = 300;
-    playerY = 300;
-    playerDeltaX = cos(playerAngle) * 5;
-    playerDeltaY = sin(playerAngle) * 5;
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, NULL);
+    if (not renderer){
+        return SDL_Fail();
+    }
+    if (not TTF_Init()) {
+        return SDL_Fail();
+    }
+
+    auto basePathPtr = SDL_GetBasePath();
+     if (not basePathPtr){
+        return SDL_Fail();
+    }
+    const std::filesystem::path basePath = basePathPtr;
+    vector<SDL_Texture *> texturesInit;
+    texturesInit.push_back(loadTexture(renderer, "brickwall.jpg"));
+    texturesInit.push_back(loadTexture(renderer, "door.jpg"));
+
+    player.x = TILE_SIZE * COLLISION_BUFFER / 10;
+    player.y = TILE_SIZE * COLLISION_BUFFER / 10;
+    player.angle = 0;
+    player.dx = cos(player.angle) * 5;
+    player.dy = sin(player.angle) * 5;
     
+    *appstate = new AppContext{
+        .window = window,
+        .renderer = renderer,
+        .textures = texturesInit,
+    };
+ 
+    SDL_SetRenderVSync(renderer, -1);
+ 
+    SDL_Log("Application started successfully!");
+
     return SDL_APP_CONTINUE;
 }
 
 
 SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
 {
+    auto* app = (AppContext*)appstate;
+
     if(event->type == SDL_EVENT_QUIT){
-        return SDL_APP_SUCCESS;
+        app->app_quit = SDL_APP_SUCCESS;
     }
     if(event->type == SDL_EVENT_KEY_DOWN) {
-        if(event->key.scancode == SDL_SCANCODE_W) {
-            
-            movement.up = true;
-         }
-        if(event->key.scancode == SDL_SCANCODE_A) {
-
-            movement.left = true;
-        }
-
-        if(event->key.scancode == SDL_SCANCODE_S) {
-
-            movement.down = true;
-         }
-     
-        if(event->key.scancode == SDL_SCANCODE_D) {
-
-            movement.right = true;
-         }
-
+        if(event->key.scancode == SDL_SCANCODE_W) movement.up = true;
+        if(event->key.scancode == SDL_SCANCODE_A) movement.left = true;
+        if(event->key.scancode == SDL_SCANCODE_S) movement.down = true;
+        if(event->key.scancode == SDL_SCANCODE_D) movement.right = true;
+        if(event->key.scancode == SDL_SCANCODE_E) movement.open = true;
+        if(event->key.scancode == SDL_SCANCODE_F) SDL_SetWindowFullscreen(app->window, app->fullScreen = !app->fullScreen);
+        if(event->key.scancode == SDL_SCANCODE_ESCAPE) app->app_quit = SDL_APP_SUCCESS;
+        if(event->key.scancode == SDL_SCANCODE_SPACE) movement.shoot = true;
     }
     if(event->type == SDL_EVENT_KEY_UP) {
         if(event->key.scancode == SDL_SCANCODE_W) movement.up = false;
         if(event->key.scancode == SDL_SCANCODE_A) movement.left = false;
         if(event->key.scancode == SDL_SCANCODE_S) movement.down = false;
         if(event->key.scancode == SDL_SCANCODE_D) movement.right = false;
+        if(event->key.scancode == SDL_SCANCODE_E) movement.open = false;
+        if(event->key.scancode == SDL_SCANCODE_SPACE) movement.shoot = false;
     }
     
     return SDL_APP_CONTINUE;
@@ -367,5 +448,12 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
 
 void SDL_AppQuit(void *appstate, SDL_AppResult result)
 {
-    
+    auto * app = (AppContext*)appstate;
+    if(app) {
+        SDL_DestroyRenderer(app->renderer);
+        SDL_DestroyWindow(app->window);
+        delete app;
+    }
+    TTF_Quit();
+    SDL_Quit(); 
 }
